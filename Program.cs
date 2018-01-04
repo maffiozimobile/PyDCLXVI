@@ -1,70 +1,94 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
+using System.Linq;
+using System.Text;
+using System.Net;
 using System.IO;
 using System.Threading.Tasks;
-using System.Text.RegularExpressions;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Globalization;
-using System.Linq;
-using System.Net;
 
-namespace GitHack
+namespace GitConsole
 {
-    internal static class MainClass
+    // Класс переопределяет метод WebClient для изменения параметра Timeout запроса
+    class WebClientWithShortTimeout : WebClient
     {
-        public static void Main(string[] args)
+        protected override WebRequest GetWebRequest(Uri uri)
         {
-            ReadFile("/Users/artemkalinkin/Desktop/C#/test.txt");
+            WebRequest request = base.GetWebRequest(uri);
+            request.Timeout =  1000; // в миллисекундах
+            return request;
         }
+    }
 
-
-        private static void ReadFile(string filename)
+    public class GitExecute
+    {
+        public static void MainClass(string filename)
         {
-            var urls = new List<string>(); 
-
-            Console.WriteLine(File.Exists(filename) ? true : false);
-
-            var read = new StreamReader(filename);
-                while (!read.EndOfStream)
+            string filedata = null;
+            try
             {
-                var pattern = @"(?:[\w\.]+)\.(?:[a-z]{2,6}\.?)";
-                foreach (Match m in Regex.Matches(read.ReadLine(), pattern))
-                {
-                    urls.Add("https://" + m.Value);
-                    urls.Add("http://" + m.Value);
-                }
+                filedata = File.ReadAllText(filename);
             }
-
-            var distinctUrls = new List<string>(urls.Distinct());
-            Console.WriteLine(Environment.ProcessorCount * 10);
+            catch (FileNotFoundException ex)
+            {
+                //Console.WriteLine(ex.GetType().FullName);
+                Console.WriteLine(ex.Message);
+                return;
+            }
             
-            var sw = new Stopwatch();
-            sw.Start();
-            Parallel.ForEach(distinctUrls, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount * 5 }, CheckUrl);
-            sw.Stop();
-            Console.WriteLine((sw.ElapsedMilliseconds/100.0).ToString(CultureInfo.InvariantCulture));
-            Console.WriteLine("Всего элементов - " + distinctUrls.Count());
+                var temparr = new List<string>();
+                var pattern = @"([\w]+\.[a-z]{2,6})";
+                foreach (Match m in Regex.Matches(filedata, pattern))
+                {
+                    temparr.Add("https://" + m.Value);
+                    temparr.Add("http://" + m.Value);
+                }
+                var distinctUrls = new List<string>(temparr.Distinct());
+                temparr.Clear();
+                Console.WriteLine("Всего объектов " + distinctUrls.Count());
+                Parallel.ForEach(distinctUrls, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount * 20 }, CheckUrl);
+                distinctUrls.Clear();
         }
-
 
         private static void CheckUrl(string url)
         {
             var uri = new Uri(url + "/.git/HEAD");
-            const string pattern = @"([a-z][a-z][a-z][:]\s[r][e][f][s]/)";
-
+            const string pattern = @"([a-z]{3}[:]\s[r][e][f][s]/)";
             try
             {
-            var html = new WebClient().DownloadString(uri);
-                foreach (Match m in Regex.Matches(html, pattern))
-                Console.WriteLine(url + " Уязвимый");
+                var html = new WebClientWithShortTimeout();
+                string data = html.DownloadString(uri);
+                foreach (Match m in Regex.Matches(data, pattern))
+                {
+                    try
+                    {
+                        //File.WriteAllText("result.txt", url + "/.git/");
+                        File.AppendAllText("result.txt", url + "/.git/\n");
+                    } catch (IOException ex)
+                    {
+                        //Console.WriteLine(ex.GetType().FullName);
+                        Console.WriteLine(ex.Message);
+                        return;
+                    }
+                    Console.WriteLine(url + " Уязвимый");
+                }
             }
             catch (InvalidOperationException ex)
             {
                 //Console.WriteLine(ex.GetType().FullName);
                 //Console.WriteLine(url + " " + ex.Message);
             }
-            return;
+        }
+    }
+    class Program
+    {
+        public static void Main(string[] args)
+        {
+            GitExecute.MainClass("test1.txt");
+
+            Console.WriteLine("Работа завершена.");
+            Console.ReadKey();
+
         }
     }
 }
-
